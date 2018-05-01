@@ -1,0 +1,349 @@
+---
+title: "scrappedweather&models"
+author: "Yejia Liao"
+date: "May 1, 2018"
+output: html_document
+---
+
+2017/4/1-2018/3/31
+```{r}
+library(XML)
+library(RCurl)
+library(dplyr)
+library(gam)
+```
+
+by hourly
+```{r}
+temp <- seq.Date(from = as.Date("2017/4/1",format = "%Y/%m/%d"), by = "day", length.out = 365)
+temp <- format(temp, format = "%Y/%m/%d")
+data = data.frame()
+time_select  =c('12:15 AM','1:15 AM','2:15 AM','3:15 AM','4:15 AM', '5:15 AM','6:15 AM','7:15 AM','8:15 AM','9:15 AM', '10:15 AM','11:15 AM', '12:15 PM', '1:15 PM','2:15 PM','3:15 PM','4:15 PM', '5:15 PM', '6:15 PM','7:15 PM', '8:15 PM', '9:15 PM','10:15 PM', '11:15 PM')
+a = '2017/6/26'
+for (i in temp){
+  web = paste(sep = '','https://www.wunderground.com/history/airport/KJRB/',i,'/DailyHistory.html?req_city=New%20York%20Downtown%20Manhattan/w&req_state=NY&reqdb.zip=10004&reqdb.magic=2&reqdb.wmo=99999')
+  tbl = readHTMLTable(getURL(web))
+  if(length(tbl) < 5){
+    tbl = data[(nrow(data)-23):nrow(data),]
+    data = rbind(data,tbl)
+    print(c(i,'data unavailable'))
+  }else{
+    tbl = tbl[[5]]
+    colnames(tbl)[1] = 'Time'
+   tbl = tbl %>% select("Time", "Temp.", 'Humidity', 'Pressure','Visibility', 'Wind Speed', 'Precip', 'Events', 'Conditions')
+  time = as.character(tbl$Time)
+  t = strsplit(time, ':')
+  j = 1
+  a = t[[1]][1]
+  d = c(1)
+  while (j <= length(t)){
+    if (t[[j]][1] != a){
+      d = c(d,j)
+      a = t[[j]][1]
+    }
+      j = j+1
+  }
+  tbl = tbl[d,]
+  if (dim(tbl)[1] < 24){
+    tbl = tbl[rep(1:nrow(tbl),c(rep(1,nrow(tbl)-1),(25-dim(tbl)[1]))),]
+    insert = tbl[nrow(tbl),]
+    
+  }
+  data = rbind(data,tbl)
+  print(c(i,dim(tbl)[1]))
+  }
+
+}
+write.csv(data,'weather.csv',row.names = F)
+```
+
+byday
+```{r}
+temp <- seq.Date(from = as.Date("2017/4/1",format = "%Y/%m/%d"), by = "month", length.out = 12)
+temp <- format(temp, format = "%Y/%m/%d")
+data = data.frame()
+a = temp[1]
+for (i in temp){
+  web = paste(sep = '','https://www.wunderground.com/history/airport/KJRB/',a,'/MonthlyHistory.html?req_city=New York Downtown Manhattan/w&req_state=NY&reqdb.zip=10004&reqdb.magic=2&reqdb.wmo=99999')
+  tbl = readHTMLTable(getURL(web))
+  tbl = tbl[[5]]
+  colnames(tbl)[1] = 'Time'
+  tbl = tbl %>% select("Time", "Temp.", 'Humidity', 'Pressure','Visibility', 'Wind Speed', 'Precip', 'Events', 'Conditions')
+  data = rbind(data,tbl)
+  print(c(i,dim(tbl)[1]))
+  }
+
+```
+
+--------model-----------
+read data
+```{r}
+day = read.csv('f_byday.csv',header = T)
+
+```
+
+handle data
+```{r}
+subday = day %>% select(num,temp_h,temp_a,temp_l,humidity_h,humidity_a,humidity_l,visibility_a,visibility_l,wind_h,wind_a,wind_l,sum,X,Holiday,season,dayofweek)
+names(subday)[14] = 'weather' 
+names(subday)[13] = 'precip'
+subday$weather = as.character(subday$weather)
+for (i in 1:dim(subday)[1]){ # 0 means good weather, while 1 means bad weather
+  if (subday$weather[i] == ''){
+    subday$weather[i] = 0
+  }else{subday$weather[i] = 1}
+}
+subday$Holiday = as.character(subday$Holiday)
+for (i in 1:dim(subday)[1]){
+  if (is.na(subday$Holiday[i])){
+    subday$Holiday[i]=0
+  }else{subday$Holiday[i] = 1}
+}
+subday$dayofweek = as.factor(subday$dayofweek)
+subday$Holiday = as.factor(subday$Holiday)
+subday$weather = as.factor(subday$weather)
+subday$wind_l = as.numeric(subday$wind_l)
+```
+
+
+cross validation
+modeling
+1.linear regression
+```{r}
+a = sample(365,110)
+training = subday[-a,]
+test = subday[a,]
+```
+
+```{r}
+model1 = lm(num~., data = training)
+summary(model1)
+fit = predict(model1,test)
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+
+2. glm
+```{r}
+model2 = glm(num~., data = training, family = 'gaussian')
+summary(model2)
+fit = predict(model2,test)
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+3. stepwise
+```{r}
+lm_forward = step(model1,direction = 'forward')
+summary(lm_forward)
+fit = predict(lm_forward,test)
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+```{r}
+lm_backward = step(model1,direction = 'backward')
+summary(lm_backward)
+fit = predict(lm_backward,test)
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+```{r}
+lm_both = step(model1,direction = 'both')
+summary(lm_both)
+fit = predict(lm_both,test)
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+4. log(num)
+```{r}
+model2 = lm(log(num)~., data = training)
+summary(model2)
+fit = exp(predict(model2,test))
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+5. ridge
+```{r}
+library(MASS)
+model.ridge = lm.ridge(num~., data = training, lambda = seq(0,2,0.001))
+select(model.ridge)
+model.ridge = lm.ridge(num~., data = training, lambda = 0.025)
+model.ridge
+```
+
+6. gam
+```{r}
+model3 = gam(num~., data = training, family = gaussian())
+fit = predict(model3,test)
+mse = sum((test$num - fit)^2)/110
+mse
+sqrt(mse)
+```
+
+-----------------------
+by hour
+```{r}
+hour = read.csv('f_byhour.csv',header = T)
+subhour = hour %>% select(num,Time,Temp.,Humidity,Visibility,Wind.Speed,Precip,Events,Conditions,Holiday,season,dayofweek)
+subhour$Time = as.character(subhour$Time)
+subhour$Temp. = as.character(subhour$Temp.)
+subhour$Humidity = as.character(subhour$Humidity)
+subhour$Visibility = as.character(subhour$Visibility)
+subhour$Wind.Speed = as.character(subhour$Wind.Speed)
+subhour$Precip = as.character(subhour$Precip)
+subhour$Events = as.character(subhour$Events)
+subhour$Conditions =as.character(subhour$Conditions)
+subhour$Holiday = as.character(subhour$Holiday)
+for (i in 1:dim(subhour)[1]){
+  subhour$Time[i] = strsplit(subhour$Time[i],':')[[1]][1]
+}
+subhour$Time = as.factor(subhour$Time)
+a = strsplit(subhour$Temp.[1],"")[[1]][6]
+for (i in 1:dim(subhour)[1]){
+  subhour$Temp.[i] =  strsplit(subhour$Temp.[i],a)[[1]][1]
+}
+subhour$Temp. = as.numeric(subhour$Temp.)
+for (i in 1:dim(subhour)[1]){
+  subhour$Humidity[i] = strsplit(subhour$Humidity[i],'%')[[1]][1]
+}
+subhour$Humidity = as.numeric(subhour$Humidity)
+for (i in 1:dim(subhour)[1]){
+  subhour$Visibility[i] = strsplit(subhour$Visibility[i],'m')[[1]][1]
+}
+subhour$Visibility = as.numeric(subhour$Visibility)
+for (i in 1:dim(subhour)[1]){
+  subhour$Wind.Speed[i] = strsplit(subhour$Wind.Speed[i],'m')[[1]][1]
+}
+subhour$Wind.Speed = as.numeric(subhour$Wind.Speed)
+for (i in 1:dim(subhour)[1]){
+  subhour$Precip[i] = strsplit(subhour$Precip[i],'i')[[1]][1]
+}
+subhour$Precip = as.numeric(subhour$Precip)
+for (i in 1:dim(subhour)[1]){
+  if (is.na(subhour$Precip[i])){
+    subhour$Precip[i] = 0
+  }
+}
+for (i in 1:dim(subhour)[1]){
+  if(subhour$Events[i] == ''){
+    subhour$Events[i] = 0
+  }else{
+    subhour$Events[i] = 1
+  }
+}
+subhour$Events = as.factor(subhour$Events)
+for (i in 1:dim(subhour)[1]){
+  if(subhour$Conditions[i] %in% c('Clear','Haze', 'Mostly Cloudy', 'Partly Cloudy', 'Scattered Clouds', 'Unknown')){
+    subhour$Conditions[i] = 0
+  }else{subhour$Conditions[i] = 1}
+}
+subhour$Conditions = as.factor(subhour$Conditions)
+for (i in 1:dim(subhour)[1]){
+  if (subhour$Holiday[i] %in% c('Christmas Day',"Columbus Day","Father's Day" ,"Independence Day","Labor Day","Memorial Day","Thanksgiving", "Veterans Day","Veterans Day")){
+    subhour$Holiday[i] = 1
+  }else{
+    subhour$Holiday[i] = 0
+  }
+}
+subhour$Holiday = as.factor(subhour$Holiday)
+subhour$season = as.factor(subhour$season)
+subhour$dayofweek =as.factor(subhour$dayofweek)
+subhour = na.omit(subhour)
+```
+
+cross validation
+modeling
+1.linear regression
+```{r}
+a = sample(8742,2628)
+training = subhour[-a,]
+test = subhour[a,]
+```
+
+```{r}
+model1 = lm(num~., data = training)
+summary(model1)
+fit = predict(model1,test)
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
+
+
+2. glm
+```{r}
+model2 = glm(num~., data = training, family = 'gaussian')
+summary(model2)
+fit = predict(model2,test)
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
+
+3. stepwise
+```{r}
+lm_forward = step(model1,k=log(6132),direction = 'forward')
+summary(lm_forward)
+fit = predict(lm_forward,test)
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
+
+```{r}
+lm_backward = step(model1,direction = 'backward')
+summary(lm_backward)
+fit = predict(lm_backward,test)
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
+
+```{r}
+lm_both = step(model1,direction = 'both')
+summary(lm_both)
+fit = predict(lm_both,test)
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
+
+4. log(num)
+```{r}
+model2 = lm(log(num)~., data = training)
+summary(model2)
+fit = exp(predict(model2,test))
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
+
+5. ridge
+```{r}
+library(MASS)
+model.ridge = lm.ridge(num~., data = training, lambda = seq(0,2,0.001))
+select(model.ridge)
+model.ridge = lm.ridge(num~., data = training, lambda = 0.025)
+model.ridge
+```
+
+6. gam
+```{r}
+model3 = gam(num~.-Events, data = training, family = gaussian())
+summary(model3)
+fit = predict(model3,test)
+mse = sum((test$num - fit)^2,na.rm = T)/2628
+mse
+sqrt(mse)
+```
