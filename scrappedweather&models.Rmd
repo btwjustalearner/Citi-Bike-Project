@@ -2,7 +2,7 @@
 title: "scrappedweather&models"
 author: "Yejia Liao"
 date: "May 1, 2018"
-output: github_document
+output: rmarkdown::github_document
 ---
 
 2017/4/1-2018/3/31
