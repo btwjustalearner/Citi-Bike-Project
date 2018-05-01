@@ -2,7 +2,7 @@
 title: "scrappedweather&models"
 author: "Yejia Liao"
 date: "May 1, 2018"
-output: html_document
+output: github_document
 ---
 
 2017/4/1-2018/3/31
